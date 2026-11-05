@@ -54,8 +54,8 @@ internal open class BrowseService2 {
 
             return AnonymousHome.resolve(
                 { getBrowseRowsTV(BrowseApiHelper::getHomeQuery, MediaGroup.TYPE_HOME) },
-                listOf(BrowseApiHelper::getMusicQuery, BrowseApiHelper::getGamingQuery,
-                    BrowseApiHelper::getNewsQuery, BrowseApiHelper::getSportsQuery).map { query ->
+                AnonymousHome.rotate(listOf(BrowseApiHelper::getMusicQuery, BrowseApiHelper::getGamingQuery,
+                    BrowseApiHelper::getNewsQuery, BrowseApiHelper::getSportsQuery)).map { query ->
                     { getBrowseRowsTV(query, MediaGroup.TYPE_HOME) }
                 }
             )
@@ -773,8 +773,30 @@ internal object SubscribedChannelAvatars : SignInService.OnAccountChange {
  * Signed-in and non-empty homes take the same single request as before.
  */
 internal object AnonymousHome : SignInService.OnAccountChange {
-    const val VERDICT_TTL_MS = 30 * 60 * 1_000L
+    // NEWTUBE(fresh-home): held for half an hour, an empty verdict kept a fresh install on the same
+    // four topic pages for 30 minutes of refreshes; the probe is one request, so re-asking it far
+    // more often is cheap and the visitor turns personalized as soon as watch-time arrives.
+    const val VERDICT_TTL_MS = 5 * 60 * 1_000L
     private const val NO_VERDICT = -1L
+
+    /** Refresh counter that rotates the topic feeds' order - see [rotate]. */
+    private val rotation = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /**
+     * NEWTUBE(fresh-home): the topic feeds repeat most of their cards (measured 73-94%), so a
+     * refresh that answered the same cards still looked the same screen. Rotating which feed's
+     * shelves come first makes every refresh a different mix of topics at no request cost.
+     */
+    internal fun <T> rotate(items: List<T>): List<T> {
+        val size = items.size
+        if (size < 2) {
+            return items
+        }
+
+        val step = rotation.incrementAndGet() % size
+
+        return items.drop(step) + items.take(step)
+    }
 
     @Volatile
     private var emptySinceMs = NO_VERDICT
